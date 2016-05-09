@@ -303,11 +303,12 @@ class Bookmarks {
 			AND exists( SELECT `id` FROM `*PREFIX*bookmarks` WHERE `user_id` = ?
 			AND `tgs`.`bookmark_id` = `id`)
 			AND exists( SELECT `t`.`tag` FROM `*PREFIX*bookmarks_tags` `t` where `t`.`tag` = ?
-			AND `tgs`.`bookmark_id` = `t`.`bookmark_id`");
+			AND `tgs`.`bookmark_id` = `t`.`bookmark_id`)");
 
 			$params = array(
 				$new,
 				$user_id,
+				$new
 			);
 
 			$query->execute($params);
@@ -325,8 +326,7 @@ class Bookmarks {
 			$params = array(
 				$new,
 				$old,
-				$user_id,
-				$old,
+				$user_id
 			);
 
 			$query->execute($params);
@@ -553,7 +553,9 @@ class Bookmarks {
 		$page = "";
 		
 		try {
-			$page = \OC::$server->getHTTPHelper()->getUrlContent($url);
+			$request = \OC::$server->getHTTPClientService()->newClient()->get($url);
+			$page = $request->getBody();
+			$contentType = $request->getHeader('Content-Type');
 		} catch (\Exception $e) {
 			throw $e;
 		}
@@ -561,8 +563,11 @@ class Bookmarks {
 		//Check for encoding of site.
 		//If not UTF-8 convert it.
 		$encoding = array();
-		preg_match('/charset="?(.*?)["|;]/i', $page, $encoding);
-		
+		preg_match('#.+?/.+?;\\s?charset\\s?=\\s?(.+)#i', $contentType, $encoding);
+		if(empty($encoding)) {
+			preg_match('/charset="?(.*?)["|;]/i', $page, $encoding);
+		}
+
 		if (isset($encoding[1])) {
 			$decodeFrom = strtoupper($encoding[1]);
 		} else {

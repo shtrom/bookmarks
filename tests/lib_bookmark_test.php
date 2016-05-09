@@ -17,8 +17,10 @@ class Test_LibBookmarks_Bookmarks extends PHPUnit_Framework_TestCase {
 	function testAddBookmark() {
 		$this->cleanDB();
 		$this->assertCount(0, Bookmarks::findBookmarks($this->userid, $this->db, 0, 'id', array(), true, -1));
-		Bookmarks::addBookmark($this->userid, $this->db, 'http://owncloud.org', 'Owncloud project', array('oc', 'cloud'), 'An Awesome project');
+		Bookmarks::addBookmark($this->userid, $this->db, 'http://owncloud.org', 'owncloud project', array('oc', 'cloud'), 'An Awesome project');
 		$this->assertCount(1, Bookmarks::findBookmarks($this->userid, $this->db, 0, 'id', array(), true, -1));
+		Bookmarks::addBookmark($this->userid, $this->db, 'http://de.wikipedia.org/Ü', 'Das Ü', array('encyclopedia', 'lang'), 'A terrific letter');
+		$this->assertCount(2, Bookmarks::findBookmarks($this->userid, $this->db, 0, 'id', array(), true, -1));
 	}
 
 	function testFindBookmarks() {
@@ -94,14 +96,41 @@ class Test_LibBookmarks_Bookmarks extends PHPUnit_Framework_TestCase {
 
 		$config = $this->getMockBuilder('\OCP\IConfig')
 						->disableOriginalConstructor()->getMock();
-		$clientService = $this->getMock('OCP\Http\Client\IClientService');
-		$httpHelperMock = $this->getMockBuilder('\OC\HTTPHelper')
-				->setConstructorArgs(array($config, $clientService))
-				->getMock();
-		$returnAmazonDe = file_get_contents(__DIR__ . '/res/amazonHtml.file');
-		$returnGolemDe = file_get_contents(__DIR__ . '/res/golemHtml.file');
-		$httpHelperMock->expects($this->any())->method('getUrlContent')->with($this->anything())->will($this->onConsecutiveCalls($returnAmazonDe, $returnGolemDe));
-		$this->registerHttpHelper($httpHelperMock);
+		$amazonResponse = $this->getMock('OCP\Http\Client\IResponse');
+		$amazonResponse->expects($this->once())
+			->method('getBody')
+			->will($this->returnValue(file_get_contents(__DIR__ . '/res/amazonHtml.file')));
+		$amazonResponse->expects($this->once())
+			->method('getHeader')
+			->with('Content-Type')
+			->will($this->returnValue(''));
+
+		$golemResponse = $this->getMock('OCP\Http\Client\IResponse');
+		$golemResponse->expects($this->once())
+			->method('getBody')
+			->will($this->returnValue(file_get_contents(__DIR__ . '/res/golemHtml.file')));
+		$golemResponse->expects($this->once())
+			->method('getHeader')
+			->with('Content-Type')
+			->will($this->returnValue('text/html; charset=UTF-8'));
+
+		$clientMock = $this->getMock('OCP\Http\Client\IClient');
+		$clientMock->expects($this->exactly(2))
+			->method('get')
+			->will($this->returnCallback(function ($page) use($amazonResponse, $golemResponse) {
+				if($page === 'amazonHtml') {
+					return $amazonResponse;
+				} else if($page === 'golemHtml') {
+					return $golemResponse;
+				}
+			}));
+
+		$clientServiceMock = $this->getMock('OCP\Http\Client\IClientService');
+		$clientServiceMock->expects($this->any())
+			->method('newClient')
+			->will($this->returnValue($clientMock));
+
+		$this->registerHttpService($clientServiceMock);
 
 		$metadataAmazon = Bookmarks::getURLMetadata('amazonHtml');
 		$this->assertTrue($metadataAmazon['url'] == 'amazonHtml');
@@ -124,13 +153,13 @@ class Test_LibBookmarks_Bookmarks extends PHPUnit_Framework_TestCase {
 	}
 
 	/**
-	 * Register an http helper mock for testing purposes.
-	 * @param $httpHelper http helper mock
+	 * Register an http service mock for testing purposes.
+	 *
+	 * @param \OCP\Http\Client\IClientService $service
 	 */
-	private function registerHttpHelper($httpHelper) {
-		$this->oldHttpHelper = \OC::$server->query('HTTPHelper');
-		\OC::$server->registerService('HTTPHelper', function () use ($httpHelper) {
-			return $httpHelper;
+	private function registerHttpService($service) {
+		\OC::$server->registerService('HttpClientService', function () use ($service) {
+			return $service;
 		});
 	}
 
